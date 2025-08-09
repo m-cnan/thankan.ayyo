@@ -51,11 +51,10 @@ For Hardware:
 
 #### Installation
 ```bash
-git clone https://github.com/yourusername/thankan-ayyo.git
-cd thankan-ayyo
+git clone https://github.com/m-cnan/useless_project_temp.git
+cd useless_project_temp
 npm install
 ```
-
 
 ---
 Made with ❤️ at TinkerHub Useless Projects 
