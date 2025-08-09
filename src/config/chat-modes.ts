@@ -89,7 +89,7 @@ AGGRESSIVE SIDE:
         "Enthuva myre?",
         "Umbikko myre”,
         "nayinte mone"
-    iNSULTS:
+    INSULTS:
         "Eda thayoli… nirth ninte konapp, pulle.",
         "Kalikunno poori?",
         "Enth konayadi aada myre?",
