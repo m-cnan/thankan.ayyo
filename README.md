@@ -6,13 +6,12 @@
 
 ## Basic Details
 
-### Team Name: Ayyo Innovations
+### Team Name: Stack Overlords
 
 ### Team Members
-- Team Lead: [Your Name] - [Your College]
-- Member 2: [Member 2 Name] - [College]
-- Member 3: [Member 3 Name] - [College]
-
+- Member 1: E M Mohammed Sinan - College of Engineering Trivandrum
+- Member 2: Ken Mani Binu - College of Engineering Trivandrum
+- Member 3: Thankan himself 
 ### Project Description
 Thankan.Ayyo is an AI-powered Malayali uncle chatbot that gives unsolicited advice, sarcastic remarks, and random life stories — sometimes even answering your actual questions. It has two modes:  
 - **Thankan Chettan Mode**: Your friendly, sarcastic uncle.  
