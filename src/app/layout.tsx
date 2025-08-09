@@ -26,6 +26,11 @@ export const metadata: Metadata = {
   description: "Chat with Thankan, a humorous Malayali uncle who's got stories, advice, and sarcasm in equal measure. Two modes: friendly uncle or brutally honest!",
   keywords: ["Malayali", "chatbot", "Kerala", "humor", "AI", "uncle", "Malayalam"],
   authors: [{ name: "Thankan.Ayyo Team" }],
+  icons: {
+    icon: '/favicon.ico',
+    shortcut: '/favicon.ico',
+    apple: '/favicon.ico',
+  },
 };
 
 export const viewport = {
