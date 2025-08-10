@@ -69,6 +69,35 @@ export async function POST(request: NextRequest) {
     console.log('Conversation messages prepared:', conversationMessages.length)
 
     console.log('Generating response with API key cycling...')
+    
+    // Quick check - if all keys are rate limited, respond immediately
+    const initialKeyStatus = apiKeyManager.getKeyStatus()
+    if (initialKeyStatus.available === 0 && initialKeyStatus.rateLimited === initialKeyStatus.total) {
+      console.log('All API keys are currently rate limited - returning immediate error')
+      
+      let errorMessage = ''
+      if (mode === 'thani') {
+        const thaniResponses = [
+          "Enthuva myre, ith onnum nadakolla! API limit okke poyalo. Poyi oru 10 minute wait cheythu va.",
+          "Eda thayoli, evide limit adichu poyittund. Ninte achan aadhyam credit kooduthal vaangikkotte!",
+          "Umbikko myre, server okke oru panikketta avastha aanu. Pinne vaa, ketto?"
+        ]
+        errorMessage = thaniResponses[Math.floor(Math.random() * thaniResponses.length)]
+      } else {
+        const thankanResponses = [
+          "Aiyyo machane, API limit adichu poyittund! Dubai-il ulla companies okke ingane thanne aanu - rush time-il slow. Konja wait cheyyeda mone.",
+          "Eda mwone, server traffic kooduthal aayittund. Nee potte oru KSRTC bus pole - wait cheythal eventually ethum alle?",
+          "Listen machane, rate limit is like fish curry without fish - technically there but not really working. Try again in few minutes, ketto?"
+        ]
+        errorMessage = thankanResponses[Math.floor(Math.random() * thankanResponses.length)]
+      }
+      
+      return NextResponse.json(
+        { error: errorMessage },
+        { status: 429 }
+      )
+    }
+    
     // Create a readable stream with retry logic
     const stream = new ReadableStream({
       async start(controller) {
@@ -88,6 +117,9 @@ export async function POST(request: NextRequest) {
               stream: true,
               max_tokens: 2000,
               temperature: 0.8,
+            }, {
+              // Add timeout to fail faster on rate limits
+              timeout: 10000, // 10 seconds instead of default 60
             })
             
             // Mark key as successful if we get here
@@ -155,6 +187,8 @@ export async function POST(request: NextRequest) {
               attempt++
               if (attempt < MAX_RETRIES) {
                 console.log(`Retrying with next API key... (${attempt}/${MAX_RETRIES})`)
+                // Small delay before retry to avoid rapid consecutive failures
+                await new Promise(resolve => setTimeout(resolve, 1000))
                 continue
               }
             } else {
@@ -162,6 +196,8 @@ export async function POST(request: NextRequest) {
               attempt++
               if (attempt < MAX_RETRIES) {
                 console.log(`Retrying due to error... (${attempt}/${MAX_RETRIES})`)
+                // Small delay before retry
+                await new Promise(resolve => setTimeout(resolve, 1000))
                 continue
               }
             }

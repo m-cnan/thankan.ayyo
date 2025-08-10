@@ -115,7 +115,7 @@ export function ChatInterface() {
       }
       
       setMessages(prev => [...prev, timeoutMessage])
-    }, 60000) // 60 second timeout
+    }, 30000) // Reduced from 60 seconds to 30 seconds
 
     try {
       console.log('Sending message to API...')
