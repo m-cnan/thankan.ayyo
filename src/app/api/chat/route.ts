@@ -158,9 +158,43 @@ export async function POST(request: NextRequest) {
             
             // All retries exhausted
             console.error('All retry attempts exhausted')
+            
+            // Get appropriate error message based on mode
+            let errorMessage = 'Failed to generate response after multiple attempts'
+            
+            if (attempt >= MAX_RETRIES && keyStatus.rateLimited === keyStatus.total) {
+              // All keys are rate limited - give mode-specific responses
+              if (mode === 'thani') {
+                const thaniResponses = [
+                  "Enthuva myre, ith onnum nadakolla! API limit okke poyalo. Poyi oru 10 minute wait cheythu va.",
+                  "Eda thayoli, evide limit adichu poyittund. Ninte achan aadhyam credit kooduthal vaangikkotte!",
+                  "Umbikko myre, server okke oru panikketta avastha aanu. Pinne vaa, ketto?",
+                  "Da kunne, limit kazhinjallo. Njan poyi ente kaaryam nokkatte, nee koode wait cheyth iru.",
+                  "Naaye, enth konayadi rate limit aanu ith! Pinne try cheyyada mone."
+                ]
+                errorMessage = thaniResponses[Math.floor(Math.random() * thaniResponses.length)]
+              } else {
+                const thankanResponses = [
+                  "Aiyyo machane, API limit adichu poyittund! Dubai-il ulla companies okke ingane thanne aanu - rush time-il slow. Konja wait cheyyeda mone.",
+                  "Eda mwone, server traffic kooduthal aayittund. Nee potte oru KSRTC bus pole - wait cheythal eventually ethum alle?",
+                  "Listen machane, rate limit is like fish curry without fish - technically there but not really working. Try again in few minutes, ketto?",
+                  "Adipoli scene aanu - everyone wants to talk to me! Server overload aayittund. Engineering padichavar okke ingane thanne cheyyum - wait and try again.",
+                  "Mwone, API quota okke kazhinjallo. Life is like internet quota - always runs out when you need it most. Pinne vaa!"
+                ]
+                errorMessage = thankanResponses[Math.floor(Math.random() * thankanResponses.length)]
+              }
+            } else {
+              // Other errors - still give mode-specific responses
+              if (mode === 'thani') {
+                errorMessage = "Enthuva myre, server-il oru problem und. Pinne try cheyy."
+              } else {
+                errorMessage = "Aiyyo machane, some technical issue. Try again, scene clear aayikkum."
+              }
+            }
+            
             const errorData = JSON.stringify({
               success: false,
-              error: 'Failed to generate response after multiple attempts',
+              error: errorMessage,
               done: true
             })
             controller.enqueue(new TextEncoder().encode(`data: ${errorData}\n\n`))
@@ -182,8 +216,22 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('API Error:', error)
+    
+    // Get mode from request body if possible for error message
+    let mode = 'thankan'
+    try {
+      const body = await request.clone().json()
+      mode = body.mode || 'thankan'
+    } catch {
+      // Fallback to thankan mode
+    }
+    
+    const errorMessage = mode === 'thani' 
+      ? "Enthuva myre, server crash aayittund. Ninte achan enth cheyyum ippo?"
+      : "Aiyyo machane, server-il oru major issue. IT team okke Dubai-il training-il aanu - try later!"
+    
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: errorMessage },
       { status: 500 }
     )
   }
