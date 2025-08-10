@@ -99,6 +99,24 @@ export function ChatInterface() {
     setIsLoading(true)
     setStreamingMessage('')
 
+    // Set a timeout to prevent infinite loading
+    const timeoutId = setTimeout(() => {
+      console.log('Request timeout - stopping loading state')
+      setIsLoading(false)
+      setStreamingMessage('')
+      
+      const timeoutMessage: Message = {
+        id: Date.now().toString(),
+        role: 'assistant',
+        content: currentMode === 'thani' 
+          ? "Enthuva myre, request timeout aayittund. Server okke slow aanu - pinne try cheyy."
+          : "Aiyyo machane, request timeout aayittund. Server busy aanu - try again, ketto?",
+        timestamp: new Date()
+      }
+      
+      setMessages(prev => [...prev, timeoutMessage])
+    }, 60000) // 60 second timeout
+
     try {
       console.log('Sending message to API...')
       console.log('Messages being sent:', [...messages, userMessage])
@@ -131,52 +149,106 @@ export function ChatInterface() {
 
       let assistantContent = ''
 
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) {
+            console.log('Stream ended, cleaning up...')
+            clearTimeout(timeoutId)
+            setIsLoading(false)
+            setStreamingMessage('')
+            break
+          }
 
-        const chunk = new TextDecoder().decode(value)
-        const lines = chunk.split('\n')
+          const chunk = new TextDecoder().decode(value)
+          const lines = chunk.split('\n')
 
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6))
-              console.log('Parsed data:', data)
-              
-              // Check for errors first, before processing content or done status
-              if (!data.success && data.error) {
-                console.error('API returned error:', data.error)
-                throw new Error(data.error)
-              }
-              
-              if (data.success && data.content) {
-                assistantContent += data.content
-                setStreamingMessage(assistantContent)
-              }
-              
-              if (data.done) {
-                console.log('Stream complete, final content:', assistantContent)
-                const assistantMessage: Message = {
-                  id: Date.now().toString(),
-                  role: 'assistant',
-                  content: assistantContent,
-                  timestamp: new Date()
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6))
+                console.log('Parsed data:', data)
+                
+                // Check for errors first, before processing content or done status
+                if (!data.success && data.error) {
+                  console.error('API returned error:', data.error)
+                  
+                  // Clear timeout
+                  clearTimeout(timeoutId)
+                  
+                  // Create error message and end streaming
+                  const errorMessage: Message = {
+                    id: Date.now().toString(),
+                    role: 'assistant',
+                    content: data.error,
+                    timestamp: new Date()
+                  }
+                  
+                  setMessages(prev => [...prev, errorMessage])
+                  setStreamingMessage('')
+                  setIsLoading(false)
+                  return
                 }
                 
-                setMessages(prev => [...prev, assistantMessage])
-                setStreamingMessage('')
-                setIsLoading(false)
-                return
+                if (data.success && data.content) {
+                  assistantContent += data.content
+                  setStreamingMessage(assistantContent)
+                }
+                
+                if (data.done) {
+                  console.log('Stream complete, final content:', assistantContent)
+                  
+                  // Clear timeout
+                  clearTimeout(timeoutId)
+                  
+                  // Only add message if we have content
+                  if (assistantContent.trim()) {
+                    const assistantMessage: Message = {
+                      id: Date.now().toString(),
+                      role: 'assistant',
+                      content: assistantContent,
+                      timestamp: new Date()
+                    }
+                    
+                    setMessages(prev => [...prev, assistantMessage])
+                  }
+                  
+                  setStreamingMessage('')
+                  setIsLoading(false)
+                  return
+                }
+              } catch (e) {
+                console.error('Error parsing streaming data:', e, 'Line:', line)
               }
-            } catch (e) {
-              console.error('Error parsing streaming data:', e, 'Line:', line)
             }
           }
+        }
+      } catch (readerError) {
+        console.error('Error reading stream:', readerError)
+        clearTimeout(timeoutId)
+        setIsLoading(false)
+        setStreamingMessage('')
+        
+        // Add error message if we don't have any content
+        if (!assistantContent.trim()) {
+          const errorMessage: Message = {
+            id: Date.now().toString(),
+            role: 'assistant',
+            content: currentMode === 'thani' 
+              ? "Enthuva myre, stream reading-il problem und. Pinne try cheyy."
+              : "Aiyyo machane, stream reading issue. Try again, ketto?",
+            timestamp: new Date()
+          }
+          
+          setMessages(prev => [...prev, errorMessage])
         }
       }
     } catch (error) {
       console.error('Error sending message:', error)
+      
+      // Clear timeout
+      clearTimeout(timeoutId)
+      
       setIsLoading(false)
       setStreamingMessage('')
       

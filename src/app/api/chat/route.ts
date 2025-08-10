@@ -110,12 +110,22 @@ export async function POST(request: NextRequest) {
             
             console.log('Stream generation complete')
             // Send final done message
-            const doneData = JSON.stringify({
-              success: true,
-              content: '',
-              done: true
-            })
-            controller.enqueue(new TextEncoder().encode(`data: ${doneData}\n\n`))
+            try {
+              const doneData = JSON.stringify({
+                success: true,
+                content: '',
+                done: true
+              })
+              controller.enqueue(new TextEncoder().encode(`data: ${doneData}\n\n`))
+            } catch (controllerError) {
+              console.error('Error sending done message:', controllerError)
+            }
+            
+            try {
+              controller.close()
+            } catch (closeError) {
+              console.error('Error closing controller after success:', closeError)
+            }
             return // Success, exit the retry loop
             
           } catch (error: unknown) {
@@ -198,17 +208,25 @@ export async function POST(request: NextRequest) {
             
             console.log('Sending error message:', errorMessage)
             
-            const errorData = JSON.stringify({
-              success: false,
-              error: errorMessage,
-              done: true
-            })
-            controller.enqueue(new TextEncoder().encode(`data: ${errorData}\n\n`))
+            try {
+              const errorData = JSON.stringify({
+                success: false,
+                error: errorMessage,
+                done: true
+              })
+              controller.enqueue(new TextEncoder().encode(`data: ${errorData}\n\n`))
+            } catch (controllerError) {
+              console.error('Error sending error message:', controllerError)
+            }
             break
           }
         }
         
-        controller.close()
+        try {
+          controller.close()
+        } catch (closeError) {
+          console.error('Error closing controller:', closeError)
+        }
       }
     })
 
