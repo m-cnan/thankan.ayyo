@@ -3,6 +3,16 @@ interface APIKeyStatus {
   isRateLimited: boolean
   rateLimitResetTime?: number
   consecutiveErrors: number
+  currentModelTier: number
+}
+
+interface KeyStatus {
+  total: number
+  available: number
+  rateLimited: number
+  currentModelTier: number
+  modelName: string
+  keysPerTier: Record<number, number>
 }
 
 class APIKeyManager {
@@ -10,6 +20,7 @@ class APIKeyManager {
   private currentKeyIndex = 0
   private readonly MAX_CONSECUTIVE_ERRORS = 3
   private readonly RATE_LIMIT_COOLDOWN = 60 * 1000 // 1 minute
+  private globalModelTier = 0 // Global tier for all keys
 
   constructor() {
     this.initializeKeys()
@@ -31,35 +42,105 @@ class APIKeyManager {
     this.apiKeys = uniqueKeys.map(key => ({
       key,
       isRateLimited: false,
-      consecutiveErrors: 0
+      consecutiveErrors: 0,
+      currentModelTier: 0 // All start with primary model
     }))
 
-    console.log(`Initialized ${this.apiKeys.length} Google AI Studio API keys for rotation`)
+    console.log(`🔑 Initialized ${this.apiKeys.length} Google AI Studio API keys for tiered rotation`)
+    console.log(`🎯 Starting with Tier ${this.globalModelTier}: ${this.getModelName(this.globalModelTier)}`)
   }
 
-  getCurrentKey(): string {
-    if (this.apiKeys.length === 0) {
-      throw new Error('No API keys available')
-    }
+  private getModelName(tier: number): string {
+    const modelNames = ['Gemini 2.0 Flash Experimental', 'Gemini 2.5 Flash-Lite', 'Gemma 3']
+    return modelNames[tier] || 'Unknown Model'
+  }
 
-    // Clean up expired rate limits
+  getCurrentKey(): string | null {
     this.cleanupExpiredRateLimits()
 
-    // Find the next available key
-    const availableKey = this.findNextAvailableKey()
-    if (!availableKey) {
-      // All keys are rate limited, return the one with earliest reset time
-      const keyWithEarliestReset = this.apiKeys.reduce((earliest, current) => {
-        if (!current.rateLimitResetTime) return earliest
-        if (!earliest.rateLimitResetTime) return current
-        return current.rateLimitResetTime < earliest.rateLimitResetTime ? current : earliest
-      })
-      
-      console.warn('All API keys are rate limited, using key with earliest reset time')
-      return keyWithEarliestReset.key
+    const availableKeys = this.apiKeys.filter(key => 
+      !key.isRateLimited && key.consecutiveErrors < this.MAX_CONSECUTIVE_ERRORS
+    )
+
+    // Check if most keys are rate limited due to quota exhaustion
+    const rateLimitedKeys = this.apiKeys.filter(key => key.isRateLimited)
+    const quotaExhaustedKeys = rateLimitedKeys.length
+    
+    // DOWNGRADE tier when 4+ out of 6 keys are rate limited (move to less powerful but higher quota model)
+    if (quotaExhaustedKeys >= 4 && this.globalModelTier < 2) {
+      console.log(`📊 Quota Status: ${quotaExhaustedKeys}/${this.apiKeys.length} keys rate limited - DOWNGRADING to lower tier for higher quotas`)
+      if (this.checkAndUpgradeTier()) {
+        console.log(`⬇️ DOWNGRADED to model tier ${this.globalModelTier} for better quota availability`)
+        return this.getCurrentKey() // Recursive call with new tier
+      }
     }
 
-    return availableKey.key
+    if (availableKeys.length === 0) {
+      // Final fallback - try tier upgrade if not already attempted
+      if (this.checkAndUpgradeTier()) {
+        console.log(`🆙 Final fallback - Upgraded to model tier ${this.globalModelTier}`)
+        return this.getCurrentKey() // Recursive call with new tier
+      }
+      
+      console.warn('⚠️ All API keys exhausted and max tier reached')
+      return null
+    }
+
+    // Use round-robin for available keys
+    if (this.currentKeyIndex >= availableKeys.length) {
+      this.currentKeyIndex = 0
+    }
+
+    const selectedKey = availableKeys[this.currentKeyIndex]
+    this.currentKeyIndex = (this.currentKeyIndex + 1) % availableKeys.length
+
+    console.log(`🔑 Using key ${this.currentKeyIndex}/${availableKeys.length} on tier ${this.globalModelTier}`)
+    return selectedKey.key
+  }
+
+  getCurrentModelTier(): number {
+    return this.globalModelTier
+  }
+
+  public checkAndUpgradeTier(): boolean {
+    const maxTier = 2 // We have 3 tiers (0, 1, 2)
+    
+    if (this.globalModelTier >= maxTier) {
+      return false // Already at highest tier
+    }
+
+    // Upgrade tier and reset all keys
+    this.globalModelTier++
+    this.apiKeys.forEach(key => {
+      key.isRateLimited = false
+      key.consecutiveErrors = 0
+      key.currentModelTier = this.globalModelTier
+    })
+
+    this.currentKeyIndex = 0
+    console.log(`🆙 TIER UPGRADE: Now using Tier ${this.globalModelTier} - ${this.getModelName(this.globalModelTier)}`)
+    return true
+  }
+
+  checkForTierDowngrade(): boolean {
+    const availableKeys = this.apiKeys.filter(key => 
+      !key.isRateLimited && key.consecutiveErrors < this.MAX_CONSECUTIVE_ERRORS
+    )
+
+    // If we have keys available and we're not on primary tier, downgrade
+    if (availableKeys.length > 0 && this.globalModelTier > 0) {
+      this.globalModelTier = 0
+      this.apiKeys.forEach(key => {
+        key.isRateLimited = false
+        key.consecutiveErrors = 0
+        key.currentModelTier = 0
+      })
+      this.currentKeyIndex = 0
+      console.log(`🔽 TIER DOWNGRADE: Back to Tier 0 - ${this.getModelName(0)}`)
+      return true
+    }
+
+    return false
   }
 
   private findNextAvailableKey(): APIKeyStatus | null {
@@ -104,6 +185,20 @@ class APIKeyManager {
     }
   }
 
+  markKeyAsDisabled(apiKey: string, reason: string = 'API access disabled') {
+    const keyStatus = this.apiKeys.find(k => k.key === apiKey)
+    if (keyStatus) {
+      keyStatus.isRateLimited = true // Use this flag to mark as unavailable
+      keyStatus.consecutiveErrors = this.MAX_CONSECUTIVE_ERRORS // Mark as max errors to exclude from available pool
+      keyStatus.rateLimitResetTime = Date.now() + (24 * 60 * 60 * 1000) // 24 hours
+      
+      console.log(`🚫 Marked API key ending in ${apiKey.slice(-8)} as disabled: ${reason}`)
+      
+      // Move to next key
+      this.currentKeyIndex = (this.currentKeyIndex + 1) % this.apiKeys.length
+    }
+  }
+
   markKeyAsSuccessful(apiKey: string) {
     const keyStatus = this.apiKeys.find(k => k.key === apiKey)
     if (keyStatus) {
@@ -113,14 +208,27 @@ class APIKeyManager {
     }
   }
 
-  getKeyStatus(): { total: number, available: number, rateLimited: number } {
+  getKeyStatus(): KeyStatus {
     const available = this.apiKeys.filter(k => !k.isRateLimited && k.consecutiveErrors < this.MAX_CONSECUTIVE_ERRORS).length
     const rateLimited = this.apiKeys.filter(k => k.isRateLimited).length
+    
+    // Count keys per tier
+    const keysPerTier: Record<number, number> = {}
+    this.apiKeys.forEach(key => {
+      const tier = key.currentModelTier
+      keysPerTier[tier] = (keysPerTier[tier] || 0) + 1
+    })
+
+    // Get model name for current tier
+    const modelName = this.getModelName(this.globalModelTier)
     
     return {
       total: this.apiKeys.length,
       available,
-      rateLimited
+      rateLimited,
+      currentModelTier: this.globalModelTier,
+      modelName,
+      keysPerTier
     }
   }
 }

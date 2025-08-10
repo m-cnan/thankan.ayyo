@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { CHAT_MODES } from '@/config/chat-modes'
 import { Message } from '@/types/chat'
 import { apiKeyManager } from '@/utils/api-key-manager'
-import { createGoogleAIClient, getGeminiModel, convertMessagesToGoogleFormat } from '@/utils/google-ai-client'
+import { createGoogleAIClient, createGoogleGenAIClient, getGeminiModel, generateWithGemma, convertMessagesToGoogleFormat, FALLBACK_MODELS } from '@/utils/google-ai-client'
 
 export async function POST(request: NextRequest) {
   try {
-    console.log('API route called')
+    console.log('API route called - v4 FIXED-TIER-JUMPING')
     const { messages, mode = 'thankan' } = await request.json()
 
     // Check if we have any API keys available
@@ -41,26 +41,49 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Always use abbreviated prompt for maximum token efficiency and consistency
+    const abbreviatedPrompt = mode === 'thani' 
+      ? `Continue as Thani Thankan - rough Malayali uncle. Use: "Ah umb myre", "Enthuva myre", "Umbikko myre", "ninte achan", "ninte achan myre", "nayinte mone", "Eda thayoli", "nirth ninte konapp", "Kalikunno poori?", "Enth konayadi aada myre?", "Da kunne", "Ninte thantha", "ang pootilu", "kuninj iri", "kunna poori mone". Be aggressive but helpful, wrap advice in insults and Malayalam slang.`
+      : `Continue as Thankan Chettan - funny Malayali uncle. Mix 60% Manglish + 40% English in SAME sentences. Use: "makkale", "mwone", "eda", "adipoli" but also "eda nee ith keek", "ariyille", "sugam alle", "you know", "ok". Be funny first, helpful second.`
+    
+    const systemPromptToUse = abbreviatedPrompt // Always use abbreviated for consistency
+    
+    console.log(`📊 Prompt Strategy: ABBREVIATED (~50 tokens) - Maximum efficiency mode`)
+
     console.log('Initializing Google AI Studio Gemini...')
 
     // Prepare conversation history for Google AI format
     const conversationMessages: Array<{ role: 'system' | 'user' | 'assistant', content: string }> = [
-      { role: 'system', content: chatMode.systemPrompt }
+      { role: 'system', content: systemPromptToUse }
     ]
 
-    // Add conversation history
-    messages
+    // Add conversation history (keep only last 3 messages for token efficiency)
+    const recentMessages = messages
       .filter((msg: Message) => msg.role === 'user' || msg.role === 'assistant')
-      .forEach((msg: Message) => {
-        conversationMessages.push({
-          role: msg.role === 'assistant' ? 'assistant' : 'user',
-          content: msg.content
-        })
-      })
+      .slice(-3) // Keep only last 3 messages
     
-    console.log('Conversation messages prepared:', conversationMessages.length)
+    recentMessages.forEach((msg: Message) => {
+      conversationMessages.push({
+        role: msg.role === 'assistant' ? 'assistant' : 'user',
+        content: msg.content
+      })
+    })
+    
+    console.log(`📝 Conversation messages prepared: ${conversationMessages.length} (limited to last 3 for token efficiency)`)
 
     console.log('Generating response with API key cycling...')
+    
+    // ULTRA-PROACTIVE TIER CHECK: Downgrade immediately if ANY rate limiting detected
+    const proactiveKeyStatus = apiKeyManager.getKeyStatus()
+    
+    // More conservative: downgrade only if we have significant rate limiting (4+ keys)
+    if (proactiveKeyStatus.rateLimited >= 4 && apiKeyManager.getCurrentModelTier() < 2) {
+      console.log(`🚀 PROACTIVE TIER CHECK: ${proactiveKeyStatus.rateLimited}/6 keys already rate limited - preemptively downgrading ONE tier`)
+      const tierChanged = apiKeyManager.checkAndUpgradeTier()
+      if (tierChanged) {
+        console.log(`⬇️ PREEMPTIVE DOWNGRADE to tier ${apiKeyManager.getCurrentModelTier()} to improve success chances`)
+      }
+    }
     
     // Quick check - if all keys are rate limited, respond immediately
     const initialKeyStatus = apiKeyManager.getKeyStatus()
@@ -120,52 +143,110 @@ export async function POST(request: NextRequest) {
         while (attempt < MAX_RETRIES) {
           try {
             const currentApiKey = apiKeyManager.getCurrentKey()
-            console.log(`Attempt ${attempt + 1}: Using Google AI API key ending in ...${currentApiKey.slice(-8)}`)
             
-            const googleAI = createGoogleAIClient(currentApiKey)
-            
-            // Convert messages to Google format
-            const { history, systemPrompt } = convertMessagesToGoogleFormat(conversationMessages)
-            
-            const model = getGeminiModel(googleAI, systemPrompt, 'gemini-2.0-flash-exp')
-            
-            // Get the latest user message
-            const latestUserMessage = conversationMessages[conversationMessages.length - 1]?.content || ''
-            
-            // For first message, include system prompt
-            let messageToSend = latestUserMessage
-            if (history.length === 0) {
-              messageToSend = `${systemPrompt}\n\nUser said: "${latestUserMessage}"\n\nRespond as Thankan Chettan according to the personality described above.`
+            if (!currentApiKey) {
+              console.log('🔄 No available API keys - all tiers exhausted')
+              throw new Error('ALL_KEYS_EXHAUSTED')
             }
             
-            // Start chat with history
-            const chat = model.startChat({
-              history: history.slice(0, -1), // All messages except the latest
-              generationConfig: {
-                maxOutputTokens: 2000,
-                temperature: 0.8,
-              },
-            })
+            console.log(`Attempt ${attempt + 1}: Using Google AI API key ending in ...${currentApiKey.slice(-8)}`)
             
-            // Send the latest message and get streaming response
-            const result = await chat.sendMessageStream(messageToSend)
+            const currentModel = FALLBACK_MODELS[apiKeyManager.getCurrentModelTier()]
+            console.log(`🎯 Current Model: ${currentModel.name} (Tier ${apiKeyManager.getCurrentModelTier()})`)
             
-            // Mark key as successful if we get here
-            apiKeyManager.markKeyAsSuccessful(currentApiKey)
-            
-            // Process the stream
-            for await (const chunk of result.stream) {
-              const chunkText = chunk.text()
-              if (chunkText) {
-                console.log('Received chunk:', chunkText.substring(0, 50))
+            // Handle different API packages based on model
+            if (currentModel.package === 'google-genai') {
+              // Use Gemma API for final fallback
+              const googleGenAI = createGoogleGenAIClient(currentApiKey)
+              
+              // Get the latest user message
+              const latestUserMessage = conversationMessages[conversationMessages.length - 1]?.content || ''
+              
+              // For Gemma, we need to include system prompt in the message
+              const fullPrompt = `${systemPromptToUse}\n\nUser said: "${latestUserMessage}"\n\nRespond as ${mode === 'thani' ? 'Thani Thankan' : 'Thankan Chettan'} according to the personality described above.`
+              
+              console.log('📤 FINAL MESSAGE BEING SENT TO GEMMA:')
+              console.log('💬 Prompt:', fullPrompt.substring(0, 500) + (fullPrompt.length > 500 ? '...' : ''))
+              console.log('🎯 Model:', currentModel.name)
+              console.log('🔧 Using Gemma API with abbreviated system prompt')
+              
+              // Generate response with Gemma
+              const responseText = await generateWithGemma(googleGenAI, fullPrompt, currentModel.name)
+              
+              // Mark key as successful
+              apiKeyManager.markKeyAsSuccessful(currentApiKey)
+              
+              // Send the complete response as chunks
+              const words = responseText.split(' ')
+              for (let i = 0; i < words.length; i += 3) {
+                const chunk = words.slice(i, i + 3).join(' ') + ' '
+                console.log('Sending Gemma chunk:', chunk.substring(0, 50))
                 
                 const data = JSON.stringify({
                   success: true,
-                  content: chunkText,
+                  content: chunk,
                   done: false
                 })
                 
                 controller.enqueue(new TextEncoder().encode(`data: ${data}\n\n`))
+                
+                // Small delay to simulate streaming
+                await new Promise(resolve => setTimeout(resolve, 50))
+              }
+              
+            } else {
+              // Use regular Gemini API
+              const googleAI = createGoogleAIClient(currentApiKey)
+              
+              // Convert messages to Google format
+              const { history, systemPrompt } = convertMessagesToGoogleFormat(conversationMessages)
+              
+              const model = getGeminiModel(googleAI, systemPrompt, currentModel.name)
+              
+              // Get the latest user message
+              const latestUserMessage = conversationMessages[conversationMessages.length - 1]?.content || ''
+              
+              // For first message, include system prompt
+              let messageToSend = latestUserMessage
+              if (history.length === 0) {
+                messageToSend = `${systemPrompt}\n\nUser said: "${latestUserMessage}"\n\nRespond as ${mode === 'thani' ? 'Thani Thankan' : 'Thankan Chettan'} according to the personality described above.`
+              }
+              
+              console.log('📤 FINAL MESSAGE BEING SENT TO GEMINI:')
+              console.log('💬 Message:', messageToSend.substring(0, 500) + (messageToSend.length > 500 ? '...' : ''))
+              console.log('🎯 Model:', currentModel.name)
+              console.log('📊 Generation Config: maxOutputTokens: 2000, temperature: 0.8')
+              console.log('🔧 Using ABBREVIATED system prompt for maximum token optimization')
+              
+              // Start chat with history
+              const chat = model.startChat({
+                history: [], // Skip history to avoid role conflicts - let abbreviated prompt handle context
+                generationConfig: {
+                  maxOutputTokens: 2000,
+                  temperature: 0.8,
+                },
+              })
+              
+              // Send the latest message and get streaming response
+              const result = await chat.sendMessageStream(messageToSend)
+              
+              // Mark key as successful if we get here
+              apiKeyManager.markKeyAsSuccessful(currentApiKey)
+              
+              // Process the stream
+              for await (const chunk of result.stream) {
+                const chunkText = chunk.text()
+                if (chunkText) {
+                  console.log('Received chunk:', chunkText.substring(0, 50))
+                  
+                  const data = JSON.stringify({
+                    success: true,
+                    content: chunkText,
+                    done: false
+                  })
+                  
+                  controller.enqueue(new TextEncoder().encode(`data: ${data}\n\n`))
+                }
               }
             }
             
@@ -205,17 +286,59 @@ export async function POST(request: NextRequest) {
               }
               return false
             }
+
+            // Check if it's an API access error (403 - disabled API)
+            const isAPIAccessError = (err: unknown): boolean => {
+              if (typeof err === 'object' && err !== null) {
+                const errorObj = err as { status?: number; message?: string; code?: string }
+                return errorObj.status === 403 || 
+                       errorObj.message?.includes('SERVICE_DISABLED') === true ||
+                       errorObj.message?.includes('API has not been used') === true ||
+                       errorObj.message?.includes('Enable it by visiting') === true
+              }
+              return false
+            }
             
             if (isRateLimitError(error)) {
               console.log('Rate limit detected, marking key and switching to next')
               
-              apiKeyManager.markKeyAsRateLimited(currentApiKey)
+              if (currentApiKey) {
+                apiKeyManager.markKeyAsRateLimited(currentApiKey)
+                
+                // SUPER AGGRESSIVE TIER CHECK: Downgrade immediately on ANY rate limit to prevent user errors
+                const currentKeyStatus = apiKeyManager.getKeyStatus()
+                if (currentKeyStatus.rateLimited >= 2 && apiKeyManager.getCurrentModelTier() < 2) {
+                  console.log(`⚡ IMMEDIATE TIER CHECK: ${currentKeyStatus.rateLimited}/6 keys rate limited - downgrading to prevent user error`)
+                  
+                  // Downgrade ONLY ONE TIER at a time and test it
+                  const tierChanged = apiKeyManager.checkAndUpgradeTier()
+                  if (tierChanged) {
+                    console.log(`⬇️ EMERGENCY DOWNGRADE to tier ${apiKeyManager.getCurrentModelTier()} - testing this tier now`)
+                    // Reset attempt counter since we're now using a different tier with fresh quotas
+                    attempt = 0
+                    await new Promise(resolve => setTimeout(resolve, 500))
+                    continue
+                  }
+                }
+              }
               
               attempt++
               if (attempt < MAX_RETRIES) {
                 console.log(`Retrying with next API key... (${attempt}/${MAX_RETRIES})`)
                 // Small delay before retry to avoid rapid consecutive failures
                 await new Promise(resolve => setTimeout(resolve, 1000))
+                continue
+              }
+            } else if (isAPIAccessError(error)) {
+              console.log('API access error (403) detected, marking key as disabled')
+              
+              if (currentApiKey) {
+                apiKeyManager.markKeyAsDisabled(currentApiKey, 'API not enabled')
+              }
+              
+              attempt++
+              if (attempt < MAX_RETRIES) {
+                console.log(`Retrying with next API key... (${attempt}/${MAX_RETRIES})`)
                 continue
               }
             } else {
@@ -229,7 +352,63 @@ export async function POST(request: NextRequest) {
               }
             }
             
-            // All retries exhausted
+            // All retries exhausted - but before giving error, try emergency downgrade to Gemma
+            console.error('All retry attempts exhausted - attempting emergency downgrade to final tier')
+            
+            // Force downgrade to Gemma (final tier) as last resort
+            if (apiKeyManager.getCurrentModelTier() < 2) {
+              console.log('🆘 EMERGENCY: Forcing to Gemma tier to prevent user error')
+              while (apiKeyManager.getCurrentModelTier() < 2) {
+                apiKeyManager.checkAndUpgradeTier()
+              }
+              
+              // Try one final attempt with Gemma
+              try {
+                const emergencyApiKey = apiKeyManager.getCurrentKey()
+                if (emergencyApiKey) {
+                  console.log('🚑 EMERGENCY GEMMA ATTEMPT with key ending in ...', emergencyApiKey.slice(-8))
+                  
+                  const currentModel = FALLBACK_MODELS[apiKeyManager.getCurrentModelTier()]
+                  if (currentModel.package === 'google-genai') {
+                    const googleGenAI = createGoogleGenAIClient(emergencyApiKey)
+                    const latestUserMessage = conversationMessages[conversationMessages.length - 1]?.content || ''
+                    const fullPrompt = `${systemPromptToUse}\n\nUser said: "${latestUserMessage}"\n\nRespond as ${mode === 'thani' ? 'Thani Thankan' : 'Thankan Chettan'} according to the personality described above.`
+                    
+                    const responseText = await generateWithGemma(googleGenAI, fullPrompt, currentModel.name)
+                    apiKeyManager.markKeyAsSuccessful(emergencyApiKey)
+                    
+                    console.log('🎉 EMERGENCY GEMMA SUCCESS - User gets response!')
+                    
+                    // Send the complete response as chunks
+                    const words = responseText.split(' ')
+                    for (let i = 0; i < words.length; i += 3) {
+                      const chunk = words.slice(i, i + 3).join(' ') + ' '
+                      const data = JSON.stringify({
+                        success: true,
+                        content: chunk,
+                        done: false
+                      })
+                      controller.enqueue(new TextEncoder().encode(`data: ${data}\n\n`))
+                      await new Promise(resolve => setTimeout(resolve, 50))
+                    }
+                    
+                    // Send final done message
+                    const doneData = JSON.stringify({
+                      success: true,
+                      content: '',
+                      done: true
+                    })
+                    controller.enqueue(new TextEncoder().encode(`data: ${doneData}\n\n`))
+                    controller.close()
+                    return // Emergency success!
+                  }
+                }
+              } catch (emergencyError) {
+                console.error('Emergency Gemma attempt also failed:', emergencyError)
+              }
+            }
+            
+            // Only now, if everything fails, show error
             console.error('All retry attempts exhausted')
             
             // Get current key status for accurate check
