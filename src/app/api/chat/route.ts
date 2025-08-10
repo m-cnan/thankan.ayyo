@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
     // Quick check - if all keys are rate limited, respond immediately
     const initialKeyStatus = apiKeyManager.getKeyStatus()
     if (initialKeyStatus.available === 0 && initialKeyStatus.rateLimited === initialKeyStatus.total) {
-      console.log('All API keys are currently rate limited - returning immediate error')
+      console.log('All API keys are currently rate limited - returning immediate streaming error')
       
       let errorMessage = ''
       if (mode === 'thani') {
@@ -92,10 +92,31 @@ export async function POST(request: NextRequest) {
         errorMessage = thankanResponses[Math.floor(Math.random() * thankanResponses.length)]
       }
       
-      return NextResponse.json(
-        { error: errorMessage },
-        { status: 429 }
-      )
+      // Return streaming error response
+      const errorStream = new ReadableStream({
+        start(controller) {
+          try {
+            const errorData = JSON.stringify({
+              success: false,
+              error: errorMessage,
+              done: true
+            })
+            controller.enqueue(new TextEncoder().encode(`data: ${errorData}\n\n`))
+            controller.close()
+          } catch (error) {
+            console.error('Error in immediate error stream:', error)
+            controller.close()
+          }
+        }
+      })
+      
+      return new Response(errorStream, {
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+        },
+      })
     }
     
     // Create a readable stream with retry logic
