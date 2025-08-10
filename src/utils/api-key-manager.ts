@@ -17,10 +17,13 @@ class APIKeyManager {
 
   private initializeKeys() {
     const keys = [
-      process.env.OPENROUTER_API_KEY_1,
-      process.env.OPENROUTER_API_KEY_2,
-      process.env.OPENROUTER_API_KEY_3,
-      process.env.OPENROUTER_API_KEY, // fallback to main key
+      process.env.GOOGLE_AI_API_KEY_1,
+      process.env.GOOGLE_AI_API_KEY_2,
+      process.env.GOOGLE_AI_API_KEY_3,
+      process.env.GOOGLE_AI_API_KEY_4,
+      process.env.GOOGLE_AI_API_KEY_5,
+      process.env.GOOGLE_AI_API_KEY_6,
+      process.env.GOOGLE_GEMINI_API_KEY, // fallback to existing key
     ].filter(Boolean) as string[]
 
     // Remove duplicates and initialize status
@@ -31,7 +34,7 @@ class APIKeyManager {
       consecutiveErrors: 0
     }))
 
-    console.log(`Initialized ${this.apiKeys.length} API keys for rotation`)
+    console.log(`Initialized ${this.apiKeys.length} Google AI Studio API keys for rotation`)
   }
 
   getCurrentKey(): string {

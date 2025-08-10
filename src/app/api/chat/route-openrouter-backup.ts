@@ -1,8 +1,16 @@
+import OpenAI from 'openai'
 import { NextRequest, NextResponse } from 'next/server'
 import { CHAT_MODES } from '@/config/chat-modes'
 import { Message } from '@/types/chat'
 import { apiKeyManager } from '@/utils/api-key-manager'
-import { createGoogleAIClient, getGeminiModel, convertMessagesToGoogleFormat } from '@/utils/google-ai-client'
+
+// Function to create OpenAI client with current API key
+function createOpenAIClient(apiKey: string) {
+  return new OpenAI({
+    apiKey,
+    baseURL: 'https://openrouter.ai/api/v1',
+  })
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -12,9 +20,9 @@ export async function POST(request: NextRequest) {
     // Check if we have any API keys available
     const keyStatus = apiKeyManager.getKeyStatus()
     if (keyStatus.total === 0) {
-      console.error('No Google AI Studio API keys configured')
+      console.error('No OpenRouter API keys configured')
       return NextResponse.json(
-        { error: 'Google AI Studio API keys not configured' },
+        { error: 'OpenRouter API keys not configured' },
         { status: 500 }
       )
     }
@@ -41,9 +49,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.log('Initializing Google AI Studio Gemini...')
+    console.log('Initializing OpenRouter Gemini 2.0 Flash Experimental...')
 
-    // Prepare conversation history for Google AI format
+    // Prepare conversation history for OpenAI format
     const conversationMessages: Array<{ role: 'system' | 'user' | 'assistant', content: string }> = [
       { role: 'system', content: chatMode.systemPrompt }
     ]
@@ -120,42 +128,26 @@ export async function POST(request: NextRequest) {
         while (attempt < MAX_RETRIES) {
           try {
             const currentApiKey = apiKeyManager.getCurrentKey()
-            console.log(`Attempt ${attempt + 1}: Using Google AI API key ending in ...${currentApiKey.slice(-8)}`)
+            console.log(`Attempt ${attempt + 1}: Using API key ending in ...${currentApiKey.slice(-8)}`)
             
-            const googleAI = createGoogleAIClient(currentApiKey)
+            const openai = createOpenAIClient(currentApiKey)
             
-            // Convert messages to Google format
-            const { history, systemPrompt } = convertMessagesToGoogleFormat(conversationMessages)
-            
-            const model = getGeminiModel(googleAI, systemPrompt, 'gemini-2.0-flash-exp')
-            
-            // Get the latest user message
-            const latestUserMessage = conversationMessages[conversationMessages.length - 1]?.content || ''
-            
-            // For first message, include system prompt
-            let messageToSend = latestUserMessage
-            if (history.length === 0) {
-              messageToSend = `${systemPrompt}\n\nUser said: "${latestUserMessage}"\n\nRespond as Thankan Chettan according to the personality described above.`
-            }
-            
-            // Start chat with history
-            const chat = model.startChat({
-              history: history.slice(0, -1), // All messages except the latest
-              generationConfig: {
-                maxOutputTokens: 2000,
-                temperature: 0.8,
-              },
+            const streamResponse = await openai.chat.completions.create({
+              model: 'google/gemini-2.0-flash-exp:free',
+              messages: conversationMessages,
+              stream: true,
+              max_tokens: 2000,
+              temperature: 0.8,
+            }, {
+              // Add timeout to fail faster on rate limits
+              timeout: 10000, // 10 seconds instead of default 60
             })
-            
-            // Send the latest message and get streaming response
-            const result = await chat.sendMessageStream(messageToSend)
             
             // Mark key as successful if we get here
             apiKeyManager.markKeyAsSuccessful(currentApiKey)
             
-            // Process the stream
-            for await (const chunk of result.stream) {
-              const chunkText = chunk.text()
+            for await (const chunk of streamResponse) {
+              const chunkText = chunk.choices[0]?.delta?.content || ''
               if (chunkText) {
                 console.log('Received chunk:', chunkText.substring(0, 50))
                 
@@ -197,11 +189,10 @@ export async function POST(request: NextRequest) {
             // Check if it's a rate limit error
             const isRateLimitError = (err: unknown): boolean => {
               if (typeof err === 'object' && err !== null) {
-                const errorObj = err as { status?: number; message?: string; code?: string }
+                const errorObj = err as { status?: number; message?: string; headers?: Record<string, string>; response?: { headers?: Record<string, string> } }
                 return errorObj.status === 429 || 
-                       errorObj.message?.includes('quota') === true ||
-                       errorObj.message?.includes('rate limit') === true ||
-                       errorObj.code === 'RATE_LIMIT_EXCEEDED'
+                       errorObj.message?.includes('rate limit') === true || 
+                       errorObj.message?.includes('Too Many Requests') === true
               }
               return false
             }
@@ -209,7 +200,10 @@ export async function POST(request: NextRequest) {
             if (isRateLimitError(error)) {
               console.log('Rate limit detected, marking key and switching to next')
               
-              apiKeyManager.markKeyAsRateLimited(currentApiKey)
+              // Extract retry-after if available
+              const errorObj = error as { headers?: Record<string, string>; response?: { headers?: Record<string, string> } }
+              const retryAfter = errorObj?.headers?.['retry-after'] || errorObj?.response?.headers?.['retry-after']
+              apiKeyManager.markKeyAsRateLimited(currentApiKey, retryAfter ? parseInt(retryAfter) : undefined)
               
               attempt++
               if (attempt < MAX_RETRIES) {
