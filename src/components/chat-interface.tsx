@@ -259,11 +259,14 @@ export function ChatInterface() {
         animate={{ y: 0 }}
         transition={{ duration: 0.5 }}
       >
-        <div className={`max-w-4xl mx-auto px-4 py-4 flex items-center justify-center relative ${
+        <div className={`max-w-4xl mx-auto px-4 py-3 sm:py-4 flex items-center justify-between ${
           currentMode === 'thani' ? 'text-red-100' : 'text-amber-900'
         }`}>
+          {/* Left spacer to center the title */}
+          <div className="w-20 sm:w-16" />
+          
           <motion.div 
-            className="text-center"
+            className="text-center flex-1"
             initial={{ x: -50, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
             transition={{ delay: 0.3 }}
@@ -273,7 +276,7 @@ export function ChatInterface() {
               initial={{ y: 20, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               transition={{ duration: 0.5 }}
-              className={`text-3xl font-bold tracking-wide ${
+              className={`text-2xl sm:text-3xl font-bold tracking-wide ${
                 currentMode === 'thani' ? 'font-oswald text-red-100' : 'text-amber-900'
               }`}
             >
@@ -281,7 +284,7 @@ export function ChatInterface() {
             </motion.h1>
           </motion.div>
           
-          <div className="absolute right-4">
+          <div className="w-20 sm:w-16 flex justify-end">
             <ModeToggle currentMode={currentMode} onModeChange={handleModeChange} />
           </div>
         </div>

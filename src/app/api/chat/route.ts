@@ -1,23 +1,33 @@
-import { GoogleGenerativeAI } from '@google/generative-ai'
+import OpenAI from 'openai'
 import { NextRequest, NextResponse } from 'next/server'
 import { CHAT_MODES } from '@/config/chat-modes'
 import { Message } from '@/types/chat'
+import { apiKeyManager } from '@/utils/api-key-manager'
 
-// Initialize Gemini AI
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GEMINI_API_KEY || '')
+// Function to create OpenAI client with current API key
+function createOpenAIClient(apiKey: string) {
+  return new OpenAI({
+    apiKey,
+    baseURL: 'https://openrouter.ai/api/v1',
+  })
+}
 
 export async function POST(request: NextRequest) {
   try {
     console.log('API route called')
     const { messages, mode = 'thankan' } = await request.json()
 
-    if (!process.env.GOOGLE_GEMINI_API_KEY) {
-      console.error('No Gemini API key found')
+    // Check if we have any API keys available
+    const keyStatus = apiKeyManager.getKeyStatus()
+    if (keyStatus.total === 0) {
+      console.error('No OpenRouter API keys configured')
       return NextResponse.json(
-        { error: 'Google Gemini API key not configured' },
+        { error: 'OpenRouter API keys not configured' },
         { status: 500 }
       )
     }
+
+    console.log(`API Key Status - Total: ${keyStatus.total}, Available: ${keyStatus.available}, Rate Limited: ${keyStatus.rateLimited}`)
 
     console.log('API key found, messages received:', messages?.length)
 
@@ -39,74 +49,126 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.log('Initializing Gemini model...')
-    // Get the model
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+    console.log('Initializing OpenRouter Gemini 2.0 Flash Experimental...')
 
-    // Prepare conversation history
-    const conversationHistory = messages
-      .slice(0, -1) // Exclude the last message to avoid duplication
+    // Prepare conversation history for OpenAI format
+    const conversationMessages: Array<{ role: 'system' | 'user' | 'assistant', content: string }> = [
+      { role: 'system', content: chatMode.systemPrompt }
+    ]
+
+    // Add conversation history
+    messages
       .filter((msg: Message) => msg.role === 'user' || msg.role === 'assistant')
-      .map((msg: Message) => `${msg.role === 'user' ? 'User' : 'Thankan'}: ${msg.content}`)
-      .join('\n')
-
-    // Get the current user message
-    const currentMessage = messages[messages.length - 1]?.content || ''
+      .forEach((msg: Message) => {
+        conversationMessages.push({
+          role: msg.role === 'assistant' ? 'assistant' : 'user',
+          content: msg.content
+        })
+      })
     
-    console.log('Conversation history:', conversationHistory)
-    console.log('Current message:', currentMessage)
+    console.log('Conversation messages prepared:', conversationMessages.length)
 
-    // Create the full prompt
-    const fullPrompt = `${chatMode.systemPrompt}
-
-Previous conversation:
-${conversationHistory}
-
-User: ${currentMessage}
-
-Thankan:`
-
-    console.log('Generating response...')
-    // Create a readable stream
+    console.log('Generating response with API key cycling...')
+    // Create a readable stream with retry logic
     const stream = new ReadableStream({
       async start(controller) {
-        try {
-          console.log('Starting stream generation')
-          const result = await model.generateContentStream(fullPrompt)
-          
-          for await (const chunk of result.stream) {
-            const chunkText = chunk.text()
-            console.log('Received chunk:', chunkText.substring(0, 50))
+        const MAX_RETRIES = 3
+        let attempt = 0
+        
+        while (attempt < MAX_RETRIES) {
+          try {
+            const currentApiKey = apiKeyManager.getCurrentKey()
+            console.log(`Attempt ${attempt + 1}: Using API key ending in ...${currentApiKey.slice(-8)}`)
             
-            const data = JSON.stringify({
-              success: true,
-              content: chunkText,
-              done: false
+            const openai = createOpenAIClient(currentApiKey)
+            
+            const streamResponse = await openai.chat.completions.create({
+              model: 'google/gemini-2.0-flash-exp:free',
+              messages: conversationMessages,
+              stream: true,
+              max_tokens: 2000,
+              temperature: 0.8,
             })
             
-            controller.enqueue(new TextEncoder().encode(`data: ${data}\n\n`))
+            // Mark key as successful if we get here
+            apiKeyManager.markKeyAsSuccessful(currentApiKey)
+            
+            for await (const chunk of streamResponse) {
+              const chunkText = chunk.choices[0]?.delta?.content || ''
+              if (chunkText) {
+                console.log('Received chunk:', chunkText.substring(0, 50))
+                
+                const data = JSON.stringify({
+                  success: true,
+                  content: chunkText,
+                  done: false
+                })
+                
+                controller.enqueue(new TextEncoder().encode(`data: ${data}\n\n`))
+              }
+            }
+            
+            console.log('Stream generation complete')
+            // Send final done message
+            const doneData = JSON.stringify({
+              success: true,
+              content: '',
+              done: true
+            })
+            controller.enqueue(new TextEncoder().encode(`data: ${doneData}\n\n`))
+            return // Success, exit the retry loop
+            
+          } catch (error: unknown) {
+            console.error(`Streaming error on attempt ${attempt + 1}:`, error)
+            
+            const currentApiKey = apiKeyManager.getCurrentKey()
+            
+            // Check if it's a rate limit error
+            const isRateLimitError = (err: unknown): boolean => {
+              if (typeof err === 'object' && err !== null) {
+                const errorObj = err as { status?: number; message?: string; headers?: Record<string, string>; response?: { headers?: Record<string, string> } }
+                return errorObj.status === 429 || 
+                       errorObj.message?.includes('rate limit') === true || 
+                       errorObj.message?.includes('Too Many Requests') === true
+              }
+              return false
+            }
+            
+            if (isRateLimitError(error)) {
+              console.log('Rate limit detected, marking key and switching to next')
+              
+              // Extract retry-after if available
+              const errorObj = error as { headers?: Record<string, string>; response?: { headers?: Record<string, string> } }
+              const retryAfter = errorObj?.headers?.['retry-after'] || errorObj?.response?.headers?.['retry-after']
+              apiKeyManager.markKeyAsRateLimited(currentApiKey, retryAfter ? parseInt(retryAfter) : undefined)
+              
+              attempt++
+              if (attempt < MAX_RETRIES) {
+                console.log(`Retrying with next API key... (${attempt}/${MAX_RETRIES})`)
+                continue
+              }
+            } else {
+              // Non-rate-limit error, don't mark key as rate limited but still retry
+              attempt++
+              if (attempt < MAX_RETRIES) {
+                console.log(`Retrying due to error... (${attempt}/${MAX_RETRIES})`)
+                continue
+              }
+            }
+            
+            // All retries exhausted
+            console.error('All retry attempts exhausted')
+            const errorData = JSON.stringify({
+              success: false,
+              error: 'Failed to generate response after multiple attempts',
+              done: true
+            })
+            controller.enqueue(new TextEncoder().encode(`data: ${errorData}\n\n`))
+            break
           }
-          
-          console.log('Stream generation complete')
-          // Send final done message
-          const doneData = JSON.stringify({
-            success: true,
-            content: '',
-            done: true
-          })
-          controller.enqueue(new TextEncoder().encode(`data: ${doneData}\n\n`))
-          
-        } catch (error) {
-          console.error('Streaming error:', error)
-          const errorData = JSON.stringify({
-            success: false,
-            error: 'Failed to generate response',
-            done: true
-          })
-          controller.enqueue(new TextEncoder().encode(`data: ${errorData}\n\n`))
-        } finally {
-          controller.close()
         }
+        
+        controller.close()
       }
     })
 
