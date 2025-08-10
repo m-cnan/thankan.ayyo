@@ -173,6 +173,11 @@ export async function POST(request: NextRequest) {
               // Generate response with Gemma
               const responseText = await generateWithGemma(googleGenAI, fullPrompt, currentModel.name)
               
+              // Check if we got a valid response
+              if (!responseText) {
+                throw new Error('Empty response from Gemma model')
+              }
+              
               // Mark key as successful
               apiKeyManager.markKeyAsSuccessful(currentApiKey)
               
@@ -375,6 +380,12 @@ export async function POST(request: NextRequest) {
                     const fullPrompt = `${systemPromptToUse}\n\nUser said: "${latestUserMessage}"\n\nRespond as ${mode === 'thani' ? 'Thani Thankan' : 'Thankan Chettan'} according to the personality described above.`
                     
                     const responseText = await generateWithGemma(googleGenAI, fullPrompt, currentModel.name)
+                    
+                    // Check if we got a valid response
+                    if (!responseText) {
+                      throw new Error('Empty response from emergency Gemma model')
+                    }
+                    
                     apiKeyManager.markKeyAsSuccessful(emergencyApiKey)
                     
                     console.log('🎉 EMERGENCY GEMMA SUCCESS - User gets response!')

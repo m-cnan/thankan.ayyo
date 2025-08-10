@@ -62,7 +62,7 @@ export function getGeminiModel(client: GoogleGenerativeAI, systemPrompt: string,
 }
 
 // Function to generate content with Gemma models (for google-genai package)
-export async function generateWithGemma(client: any, prompt: string, model: string = 'gemma-3-27b-it') {
+export async function generateWithGemma(client: GoogleGenAI, prompt: string, model: string = 'gemma-3-27b-it') {
   console.log(`🤖 Using Gemma model: ${model}`)
   
   const response = await client.models.generateContent({
