@@ -144,6 +144,12 @@ export function ChatInterface() {
               const data = JSON.parse(line.slice(6))
               console.log('Parsed data:', data)
               
+              // Check for errors first, before processing content or done status
+              if (!data.success && data.error) {
+                console.error('API returned error:', data.error)
+                throw new Error(data.error)
+              }
+              
               if (data.success && data.content) {
                 assistantContent += data.content
                 setStreamingMessage(assistantContent)
@@ -163,11 +169,6 @@ export function ChatInterface() {
                 setIsLoading(false)
                 return
               }
-
-              if (!data.success && data.error) {
-                console.error('API returned error:', data.error)
-                throw new Error(data.error)
-              }
             } catch (e) {
               console.error('Error parsing streaming data:', e, 'Line:', line)
             }
@@ -179,10 +180,16 @@ export function ChatInterface() {
       setIsLoading(false)
       setStreamingMessage('')
       
+      // Try to extract the error message from the API response
+      let errorContent = 'Aiyyo! Something went wrong. Try again, machane.'
+      if (error instanceof Error) {
+        errorContent = error.message
+      }
+      
       const errorMessage: Message = {
         id: Date.now().toString(),
         role: 'assistant',
-        content: 'Aiyyo! Something went wrong. Try again, machane.',
+        content: errorContent,
         timestamp: new Date()
       }
       

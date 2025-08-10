@@ -159,10 +159,14 @@ export async function POST(request: NextRequest) {
             // All retries exhausted
             console.error('All retry attempts exhausted')
             
+            // Get current key status for accurate check
+            const currentKeyStatus = apiKeyManager.getKeyStatus()
+            console.log('Current key status for error handling:', currentKeyStatus)
+            
             // Get appropriate error message based on mode
             let errorMessage = 'Failed to generate response after multiple attempts'
             
-            if (attempt >= MAX_RETRIES && keyStatus.rateLimited === keyStatus.total) {
+            if (attempt >= MAX_RETRIES && (currentKeyStatus.rateLimited === currentKeyStatus.total || currentKeyStatus.available === 0)) {
               // All keys are rate limited - give mode-specific responses
               if (mode === 'thani') {
                 const thaniResponses = [
@@ -191,6 +195,8 @@ export async function POST(request: NextRequest) {
                 errorMessage = "Aiyyo machane, some technical issue. Try again, scene clear aayikkum."
               }
             }
+            
+            console.log('Sending error message:', errorMessage)
             
             const errorData = JSON.stringify({
               success: false,
