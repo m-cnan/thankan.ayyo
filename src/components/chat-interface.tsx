@@ -269,6 +269,7 @@ export function ChatInterface() {
     }
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const clearChat = () => {
     setMessages([])
     setStreamingMessage('')
@@ -313,6 +314,7 @@ export function ChatInterface() {
     setShowDisclaimer(false)
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const isThaniMode = currentMode === 'thani'
 
   return (
