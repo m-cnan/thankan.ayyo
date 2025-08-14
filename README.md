@@ -62,6 +62,10 @@ npm install
 <img src=SCR-20250814-peko.png>
 <img src=SCR-20250814-peyb.png>
 
+# Video
+
+[![Watch the video](WhatsApp Image 2025-08-10 at 09.25.11.jpeg)](2025-08-14 17-53-52.mp4)
+
 ---
 Made with ❤️ at TinkerHub Useless Projects 
 
