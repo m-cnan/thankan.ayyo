@@ -55,6 +55,12 @@ git clone https://github.com/m-cnan/useless_project_temp.git
 cd useless_project_temp
 npm install
 ```
+# Screenshots (Add at least 3)
+<img src=SCR-20250814-peeu.png>
+<img src=SCR-20250814-pfdz.png>
+<img src=SCR-20250814-peho.png>
+<img src=SCR-20250814-peko.png>
+<img src=SCR-20250814-peyb.png>
 
 ---
 Made with ❤️ at TinkerHub Useless Projects 
