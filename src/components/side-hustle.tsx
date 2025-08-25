@@ -30,7 +30,7 @@ export function SideHustle({ currentMode }: SideHustleProps) {
       {/* Side Hustle Button */}
       <motion.button
         onClick={() => setShowDisclaimer(true)}
-        className="fixed top-20 right-4 text-xs text-red-400/80 hover:text-red-300 transition-all duration-300 z-30 font-mono relative group"
+        className="fixed top-20 right-4 text-xs text-red-400/80 hover:text-red-300 transition-all duration-300 z-30 font-mono relative group px-2 py-1"
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
         animate={{
@@ -50,7 +50,8 @@ export function SideHustle({ currentMode }: SideHustleProps) {
       >
         {/* Subtle background glow */}
         <motion.div
-          className="absolute inset-0 bg-red-500/10 rounded-md blur-sm -z-10"
+          className="absolute inset-0 bg-red-500/10 rounded-md blur-sm"
+          style={{ zIndex: -1 }}
           animate={{
             opacity: [0.3, 0.6, 0.3],
             scale: [1, 1.1, 1]
@@ -64,13 +65,15 @@ export function SideHustle({ currentMode }: SideHustleProps) {
         
         {/* Hover glow effect */}
         <motion.div
-          className="absolute inset-0 bg-red-400/20 rounded-md blur-md -z-10 opacity-0 group-hover:opacity-100"
+          className="absolute inset-0 bg-red-400/20 rounded-md blur-md opacity-0 group-hover:opacity-100"
+          style={{ zIndex: -1 }}
           transition={{ duration: 0.3 }}
         />
         
         {/* Animated border */}
         <motion.div
-          className="absolute inset-0 border border-red-500/30 rounded-md -z-10"
+          className="absolute inset-0 border border-red-500/30 rounded-md"
+          style={{ zIndex: -1 }}
           animate={{
             borderColor: [
               "rgba(239, 68, 68, 0.3)",
@@ -85,7 +88,7 @@ export function SideHustle({ currentMode }: SideHustleProps) {
           }}
         />
         
-        <span className="relative px-2 py-1">side hustle</span>
+        side hustle
       </motion.button>
 
       {/* Video Disclaimer */}
