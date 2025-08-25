@@ -385,7 +385,7 @@ export function ChatInterface() {
             ? 'text-red-400/60 hover:text-red-300/80' 
             : 'text-amber-600/60 hover:text-amber-500/80'
         } transition-colors duration-300`}>
-          A project of Mani and Cnan
+          A project of Mani and Sinan
         </p>
       </motion.div>
 
