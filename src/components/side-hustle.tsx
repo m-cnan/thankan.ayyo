@@ -30,7 +30,7 @@ export function SideHustle({ currentMode }: SideHustleProps) {
       {/* Side Hustle Button */}
       <motion.button
         onClick={() => setShowDisclaimer(true)}
-        className="fixed top-20 right-4 text-xs text-gray-400/60 hover:text-gray-300 transition-colors z-30 font-mono"
+        className="fixed top-20 right-4 text-sm font-bold text-red-400 hover:text-red-300 transition-colors z-30 font-mono"
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
       >
