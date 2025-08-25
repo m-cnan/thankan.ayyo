@@ -373,6 +373,22 @@ export function ChatInterface() {
       {/* Side Hustle Component */}
       <SideHustle currentMode={currentMode} />
 
+      {/* About Line - Bottom Right */}
+      <motion.div
+        className="fixed bottom-4 right-4 z-20"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 1, duration: 0.5 }}
+      >
+        <p className={`text-xs font-mono ${
+          currentMode === 'thani' 
+            ? 'text-red-400/60 hover:text-red-300/80' 
+            : 'text-amber-600/60 hover:text-amber-500/80'
+        } transition-colors duration-300`}>
+          A project of Mani and Cnan
+        </p>
+      </motion.div>
+
       {/* Mode Disclaimer */}
       <ModeDisclaimer
         isVisible={showDisclaimer}
