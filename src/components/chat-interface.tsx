@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Message } from '@/types/chat'
 import { CHAT_MODES, DEFAULT_MODE } from '@/config/chat-modes'
@@ -17,7 +17,6 @@ export function ChatInterface() {
   const [streamingMessage, setStreamingMessage] = useState('')
   const [showDisclaimer, setShowDisclaimer] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const idleTimerRef = useRef<NodeJS.Timeout | null>(null)
   const lastProcessedMessageId = useRef<string | null>(null)
 
   const scrollToBottom = () => {
@@ -28,59 +27,8 @@ export function ChatInterface() {
     scrollToBottom()
   }, [messages, streamingMessage])
 
-  // Idle conversation starter - only for Thankan Chetan
-  const startIdleConversation = useCallback(() => {
-    if (messages.length === 0 || currentMode === 'thani') return
-    
-    const idlePrompts = [
-      "Eda, still there? Want to hear about my cousin's wedding?",
-      "You know what happened to me yesterday?",
-      "Machane, let me tell you something interesting...",
-      "Aiyyo, I just remembered this funny incident..."
-    ]
-    
-    const randomPrompt = idlePrompts[Math.floor(Math.random() * idlePrompts.length)]
-    
-    const idleMessage: Message = {
-      id: Date.now().toString(),
-      role: 'assistant',
-      content: randomPrompt,
-      timestamp: new Date()
-    }
-    
-    setMessages(prev => [...prev, idleMessage])
-  }, [messages.length, currentMode])
-
-  // Reset idle timer - only for Thankan Chetan and less frequent
-  const resetIdleTimer = useCallback(() => {
-    if (idleTimerRef.current) {
-      clearTimeout(idleTimerRef.current)
-    }
-    
-    // Only start timer for Thankan Chetan mode
-    if (currentMode === 'thankan') {
-      idleTimerRef.current = setTimeout(() => {
-        startIdleConversation()
-      }, 60000) // 60 seconds of idle time (reduced frequency)
-    }
-  }, [startIdleConversation, currentMode])
-
-  useEffect(() => {
-    resetIdleTimer()
-    return () => {
-      if (idleTimerRef.current) {
-        clearTimeout(idleTimerRef.current)
-      }
-    }
-  }, [messages, resetIdleTimer])
-
   const sendMessage = async (content: string) => {
     if (isLoading) return
-
-    // Clear any idle timers when user sends a message
-    if (idleTimerRef.current) {
-      clearTimeout(idleTimerRef.current)
-    }
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -273,9 +221,6 @@ export function ChatInterface() {
   const clearChat = () => {
     setMessages([])
     setStreamingMessage('')
-    if (idleTimerRef.current) {
-      clearTimeout(idleTimerRef.current)
-    }
   }
 
   const handleModeChange = (mode: 'thankan' | 'thani') => {
@@ -293,16 +238,6 @@ export function ChatInterface() {
     setMessages([])
     setStreamingMessage('')
     setCurrentMode(mode)
-    
-    // Clear any existing idle timer
-    if (idleTimerRef.current) {
-      clearTimeout(idleTimerRef.current)
-    }
-    
-    // Only restart timer for Thankan Chetan mode
-    if (mode === 'thankan') {
-      resetIdleTimer()
-    }
   }
 
   const handleDisclaimerConfirm = () => {
